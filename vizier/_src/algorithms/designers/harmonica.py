@@ -180,7 +180,7 @@ class HarmonicaQ(_Surrogate):
   )
   # Number of stages.
   _q: int = attrs.field(
-      default=10, validator=attrs.validators.ge(0), kw_only=True
+      default=1, validator=attrs.validators.ge(0), kw_only=True
   )
 
   # Number of maximizers on the surrogate to use.
@@ -225,7 +225,7 @@ class HarmonicaQ(_Surrogate):
           replacement_indices=list(J),
           psr=self._psr,
       )
-      X_temp = np.random.choice([-1.0, 1.0], size=(self._T, num_vars))
+      X_temp = np.random.uniform(low=-1.0, high=1.0, size=(self._T, num_vars))
       Y_temp = np.array([self._restricted_surrogate.predict(x) for x in X_temp])
 
   def predict(self, x: np.ndarray) -> float:
@@ -258,7 +258,8 @@ class HarmonicaDesigner(vza.Designer):
     """Init.
 
     Args:
-      problem_statement: Must use a boolean search space.
+      problem_statement: Must use a search space between where each parameter
+        is in [-1.0, 1.0].
       harmonica_q: HarmonicaQ class. If None, will use default class with
         default kwargs.
       acquisition_samples: Number of trial samples to optimize final acquisition
@@ -272,8 +273,8 @@ class HarmonicaDesigner(vza.Designer):
           f'This designer {self} does not support conditional search.'
       )
     for p_config in problem_statement.search_space.parameters:
-      if p_config.external_type != vz.ExternalType.BOOLEAN:
-        raise ValueError('Only boolean search spaces are supported.')
+      if p_config.bounds != (-1., 1.):
+        raise ValueError('Param bounds must be [-1.0, 1.0])')
 
     self._problem_statement = problem_statement
     self._metric_name = self._problem_statement.metric_information.item().name
@@ -315,10 +316,7 @@ class HarmonicaDesigner(vza.Designer):
     X = []
     Y = []
     for t in self._trials:
-      single_x = [
-          1.0 if t.parameters.get_value(p.name) == 'True' else -1.0
-          for p in self._search_space.parameters
-      ]
+      single_x = [t.parameters.get_value(p.name) for p in self._search_space.parameters]
       single_y = t.final_measurement.metrics[self._metric_name].value
       X.append(single_x)
       Y.append(single_y)
@@ -337,13 +335,13 @@ class HarmonicaDesigner(vza.Designer):
 
     # Optimize final acquisition function.
     # TODO: Allow any designer instead of just random search.
-    X_temp = np.random.choice(
-        [-1.0, 1.0], size=(self._acquisition_samples, self._num_vars)
+    X_temp = np.random.uniform(
+        low=-1.0, high=1.0, size=(self._acquisition_samples, self._num_vars)
     )
     Y_temp = np.array([self._harmonica_q.predict(x) for x in X_temp])
     x_new = X_temp[np.argmax(Y_temp)]
 
     parameters = vz.ParameterDict()
     for i, p in enumerate(self._search_space.parameters):
-      parameters[p.name] = 'True' if x_new[i] == 1.0 else 'False'
+      parameters[p.name] = x_new[i]
     return [vz.TrialSuggestion(parameters=parameters)]
